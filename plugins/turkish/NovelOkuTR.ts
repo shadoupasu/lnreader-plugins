@@ -10,7 +10,7 @@ class NovelOkuTR implements Plugin.PluginBase {
     site = "https://novelokutr.net/";
     version = "1.0.0";
 
-    // Popüler romanları listeleme
+    // Popüler romanları listelem
     async popularNovels(pageNo: number): Promise<NovelItem[]> {
         const url = `${this.site}seri-listesi/page/${pageNo}/?m_orderby=views`;
         const body = await fetchHtml({ url });
