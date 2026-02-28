@@ -8,7 +8,7 @@ class NovelOkuTR implements Plugin.PluginBase {
     name = "Novel Oku TR";
     icon = "src/turkish/novelokutr/icon.png";
     site = "https://novelokutr.net/";
-    version = "1.0.0";
+    version = "1.0.3";
 
     // Popüler romanları listelem
     async popularNovels(pageNo: number): Promise<NovelItem[]> {
