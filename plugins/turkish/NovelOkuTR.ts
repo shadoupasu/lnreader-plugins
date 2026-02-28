@@ -1,24 +1,24 @@
-import { load as parseHTML } from 'cheerio';
-import { fetchApi } from '@libs/fetch';
-import { Plugin } from '@/types/plugin';
+import { fetchHtml } from "@libs/fetch";
+import { Plugin } from "@tmrace/lnreader-plugin-utils";
+import { NovelItem, NovelDetails, ChapterItem } from "@tmrace/lnreader-plugin-utils";
+import { load as parseHTML } from "cheerio";
 
 class NovelOkuTR implements Plugin.PluginBase {
-    id = 'novelokutr';
-    name = 'Novel Oku TR';
-    icon = 'src/turkish/novelokutr/icon.png';
-    site = 'https://novelokutr.net/';
-    version = '1.0.5'; // Versiyonu güncelledik
+    id = "novelokutr";
+    name = "Novel Oku TR";
+    icon = "src/turkish/novelokutr/icon.png";
+    site = "https://novelokutr.net/";
+    version = "1.0.4";
 
     // Popüler romanları listeleme
-    async popularNovels(pageNo: number): Promise<Plugin.NovelItem[]> {
+    async popularNovels(pageNo: number): Promise<NovelItem[]> {
         const url = `${this.site}seri-listesi/page/${pageNo}/?m_orderby=views`;
-        
-        const result = await fetchApi(url);
-        const body = await result.text();
+        const body = await fetchHtml({ url });
         const loadedCheerio = parseHTML(body);
 
-        const novels: Plugin.NovelItem[] = [];
+        const novels: NovelItem[] = [];
 
+        // Site yapısına göre seçicileri güncelledim
         loadedCheerio(".page-item-detail").each((i, el) => {
             const novelName = loadedCheerio(el).find(".post-title h3 a").text().trim();
             const novelCover = loadedCheerio(el).find("img").attr("src");
@@ -36,26 +36,26 @@ class NovelOkuTR implements Plugin.PluginBase {
         return novels;
     }
 
-    // Roman detaylarını ve bölüm listesini çekme (getNovelDetails yerine parseNovel)
-    async parseNovel(novelPath: string): Promise<Plugin.SourceNovel> {
+    // Roman detaylarını ve bölüm listesini çekme
+    async getNovelDetails(novelPath: string): Promise<NovelDetails> {
         const url = `${this.site}${novelPath}`;
-        
-        const result = await fetchApi(url);
-        const body = await result.text();
+        const body = await fetchHtml({ url });
         const loadedCheerio = parseHTML(body);
 
-        const novel: Plugin.SourceNovel = {
+        const novel: NovelDetails = {
             path: novelPath,
             name: loadedCheerio(".post-title h1").text().trim(),
             cover: loadedCheerio(".summary_image img").attr("src"),
             author: loadedCheerio(".author-content a").text().trim(),
-            summary: loadedCheerio(".description-summary .summary__content").text().trim(),
+            description: loadedCheerio(".description-summary .summary__content").text().trim(),
+            genres: "",
             status: loadedCheerio(".post-status .summary-content").text().trim(),
             chapters: [],
         };
 
-        const chapters: Plugin.ChapterItem[] = [];
+        const chapters: ChapterItem[] = [];
 
+        // Bölüm listesini çekme (Ajax veya direkt HTML)
         loadedCheerio(".wp-manga-chapter").each((i, el) => {
             const chapterName = loadedCheerio(el).find("a").text().trim();
             const chapterUrl = loadedCheerio(el).find("a").attr("href");
@@ -74,14 +74,13 @@ class NovelOkuTR implements Plugin.PluginBase {
         return novel;
     }
 
-    // Bölüm içeriğini çekme (getChapterPages yerine parseChapter)
-    async parseChapter(chapterPath: string): Promise<string> {
+    // Bölüm içeriğini çekme
+    async getChapterPages(chapterPath: string): Promise<string> {
         const url = `${this.site}${chapterPath}`;
-        
-        const result = await fetchApi(url);
-        const body = await result.text();
+        const body = await fetchHtml({ url });
         const loadedCheerio = parseHTML(body);
 
+        // Genellikle metin 'text-left' veya 'reading-content' sınıflarında bulunur
         let chapterText = loadedCheerio(".reading-content").html() || "";
         
         // Gereksiz script ve reklam etiketlerini temizleme
@@ -91,14 +90,12 @@ class NovelOkuTR implements Plugin.PluginBase {
     }
 
     // Arama fonksiyonu
-    async searchNovels(searchTerm: string, pageNo: number): Promise<Plugin.NovelItem[]> {
+    async searchNovels(searchTerm: string, pageNo: number): Promise<NovelItem[]> {
         const url = `${this.site}page/${pageNo}/?s=${searchTerm}&post_type=wp-manga`;
-        
-        const result = await fetchApi(url);
-        const body = await result.text();
+        const body = await fetchHtml({ url });
         const loadedCheerio = parseHTML(body);
 
-        const novels: Plugin.NovelItem[] = [];
+        const novels: NovelItem[] = [];
 
         loadedCheerio(".c-tabs-item__content").each((i, el) => {
             const novelName = loadedCheerio(el).find(".post-title h3 a").text().trim();
