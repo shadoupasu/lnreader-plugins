@@ -7,11 +7,12 @@ class NovelOkuTR implements Plugin.PluginBase {
     name = 'Novel Oku TR';
     icon = 'src/turkish/novelokutr/icon.png';
     site = 'https://novelokutr.net/';
-    version = '1.0.6'; // Güncelleme algılansın diye versiyon artırıldı
+    version = '1.0.6';
 
-    // Popüler romanları listeleme
+    // 1. ÇÖZÜM: Popüler Romanları çalışan arama altyapısı ile çekiyoruz
     async popularNovels(pageNo: number): Promise<Plugin.NovelItem[]> {
-        const url = `${this.site}seri-listesi/page/${pageNo}/?m_orderby=views`;
+        // Arama sayfasını parametresiz ve "görüntülenmeye göre sırala" (m_orderby=views) mantığıyla kullanıyoruz
+        const url = `${this.site}page/${pageNo}/?s=&post_type=wp-manga&m_orderby=views`;
         
         const result = await fetchApi(url);
         const body = await result.text();
@@ -19,9 +20,10 @@ class NovelOkuTR implements Plugin.PluginBase {
 
         const novels: Plugin.NovelItem[] = [];
 
-        loadedCheerio(".page-item-detail").each((i, el) => {
+        loadedCheerio(".c-tabs-item__content").each((i, el) => {
             const novelName = loadedCheerio(el).find(".post-title h3 a").text().trim();
-            const novelCover = loadedCheerio(el).find("img").attr("src");
+            // Resimler bazen tembel yükleme (lazy load) yüzünden data-src içinde gizlenir
+            const novelCover = loadedCheerio(el).find("img").attr("data-src") || loadedCheerio(el).find("img").attr("src");
             const novelUrl = loadedCheerio(el).find(".post-title h3 a").attr("href");
 
             if (novelUrl) {
@@ -36,7 +38,7 @@ class NovelOkuTR implements Plugin.PluginBase {
         return novels;
     }
 
-    // Roman detaylarını ve bölüm listesini çekme
+    // 2. ÇÖZÜM: Roman Detayları ve AJAX Bölüm Çekme
     async parseNovel(novelPath: string): Promise<Plugin.SourceNovel> {
         const url = `${this.site}${novelPath}`;
         
@@ -47,20 +49,36 @@ class NovelOkuTR implements Plugin.PluginBase {
         const novel: Plugin.SourceNovel = {
             path: novelPath,
             name: loadedCheerio(".post-title h1").text().trim(),
-            cover: loadedCheerio(".summary_image img").attr("src"),
+            cover: loadedCheerio(".summary_image img").attr("data-src") || loadedCheerio(".summary_image img").attr("src"),
             author: loadedCheerio(".author-content a").text().trim(),
             summary: loadedCheerio(".description-summary .summary__content").text().trim(),
             status: loadedCheerio(".post-status .summary-content").text().trim(),
             chapters: [],
         };
 
+        // Madara temasında bölümleri çekmek için romanın gizli ID'sini bulmamız gerek
+        const novelId = loadedCheerio('.rating-post-id').attr('value');
+        let chapterHtml = body; // Varsayılan olarak sayfa içeriği
+
+        // Eğer ID bulursak, siteye bölümleri vermesi için POST isteği atıyoruz
+        if (novelId) {
+            const chapterReq = await fetchApi(`${this.site}wp-admin/admin-ajax.php`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                },
+                body: `action=manga_get_chapters&manga=${novelId}`
+            });
+            chapterHtml = await chapterReq.text();
+        }
+
+        const chapterCheerio = parseHTML(chapterHtml);
         const chapters: Plugin.ChapterItem[] = [];
 
-        // 1. Deneme: HTML içinde bölüm var mı kontrol et
-        loadedCheerio(".wp-manga-chapter").each((i, el) => {
-            const chapterName = loadedCheerio(el).find("a").text().trim();
-            const chapterUrl = loadedCheerio(el).find("a").attr("href");
-            const releaseDate = loadedCheerio(el).find(".chapter-release-date").text().trim();
+        chapterCheerio(".wp-manga-chapter").each((i, el) => {
+            const chapterName = chapterCheerio(el).find("a").text().trim();
+            const chapterUrl = chapterCheerio(el).find("a").attr("href");
+            const releaseDate = chapterCheerio(el).find(".chapter-release-date").text().trim();
 
             if (chapterUrl) {
                 chapters.push({
@@ -71,35 +89,7 @@ class NovelOkuTR implements Plugin.PluginBase {
             }
         });
 
-        // 2. Deneme (Madara AJAX Yöntemi): Eğer bölüm bulunamadıysa AJAX isteği at
-        if (chapters.length === 0) {
-            const ajaxUrl = url.endsWith('/') ? `${url}ajax/chapters/` : `${url}/ajax/chapters/`;
-            
-            try {
-                // Madara teması bölümleri POST isteği ile verir
-                const ajaxResult = await fetchApi(ajaxUrl, { method: 'POST' });
-                const ajaxBody = await ajaxResult.text();
-                const ajaxCheerio = parseHTML(ajaxBody);
-
-                ajaxCheerio(".wp-manga-chapter").each((i, el) => {
-                    const chapterName = ajaxCheerio(el).find("a").text().trim();
-                    const chapterUrl = ajaxCheerio(el).find("a").attr("href");
-                    const releaseDate = ajaxCheerio(el).find(".chapter-release-date i").text().trim();
-
-                    if (chapterUrl) {
-                        chapters.push({
-                            name: chapterName,
-                            path: chapterUrl.replace(this.site, ""),
-                            releaseTime: releaseDate,
-                        });
-                    }
-                });
-            } catch (error) {
-                console.error("Bölümler AJAX ile çekilemedi:", error);
-            }
-        }
-
-        novel.chapters = chapters.reverse(); // Bölümleri eskiden yeniye sırala (Uygulama standardı)
+        novel.chapters = chapters.reverse(); // Eskiden yeniye sıralama
         return novel;
     }
 
@@ -113,13 +103,12 @@ class NovelOkuTR implements Plugin.PluginBase {
 
         let chapterText = loadedCheerio(".reading-content").html() || "";
         
-        // Gereksiz script ve reklam etiketlerini temizleme
         chapterText = chapterText.replace(/<script\b[^>]*>([\s\S]*?)<\/script>/gmi, "");
 
         return chapterText;
     }
 
-    // Arama fonksiyonu
+    // Arama fonksiyonu (Kapak resmi iyileştirildi)
     async searchNovels(searchTerm: string, pageNo: number): Promise<Plugin.NovelItem[]> {
         const url = `${this.site}page/${pageNo}/?s=${searchTerm}&post_type=wp-manga`;
         
@@ -131,7 +120,7 @@ class NovelOkuTR implements Plugin.PluginBase {
 
         loadedCheerio(".c-tabs-item__content").each((i, el) => {
             const novelName = loadedCheerio(el).find(".post-title h3 a").text().trim();
-            const novelCover = loadedCheerio(el).find("img").attr("src");
+            const novelCover = loadedCheerio(el).find("img").attr("data-src") || loadedCheerio(el).find("img").attr("src");
             const novelUrl = loadedCheerio(el).find(".post-title h3 a").attr("href");
 
             if (novelUrl) {
