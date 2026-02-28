@@ -7,7 +7,7 @@ class NovelOkuTR implements Plugin.PluginBase {
     name = 'Novel Oku TR';
     icon = 'src/turkish/novelokutr/icon.png';
     site = 'https://novelokutr.net/';
-    version = '1.0.5'; // Versiyonu güncelledik
+    version = '1.0.6'; // Güncelleme algılansın diye versiyon artırıldı
 
     // Popüler romanları listeleme
     async popularNovels(pageNo: number): Promise<Plugin.NovelItem[]> {
@@ -36,7 +36,7 @@ class NovelOkuTR implements Plugin.PluginBase {
         return novels;
     }
 
-    // Roman detaylarını ve bölüm listesini çekme (getNovelDetails yerine parseNovel)
+    // Roman detaylarını ve bölüm listesini çekme
     async parseNovel(novelPath: string): Promise<Plugin.SourceNovel> {
         const url = `${this.site}${novelPath}`;
         
@@ -56,6 +56,7 @@ class NovelOkuTR implements Plugin.PluginBase {
 
         const chapters: Plugin.ChapterItem[] = [];
 
+        // 1. Deneme: HTML içinde bölüm var mı kontrol et
         loadedCheerio(".wp-manga-chapter").each((i, el) => {
             const chapterName = loadedCheerio(el).find("a").text().trim();
             const chapterUrl = loadedCheerio(el).find("a").attr("href");
@@ -70,11 +71,39 @@ class NovelOkuTR implements Plugin.PluginBase {
             }
         });
 
-        novel.chapters = chapters.reverse(); // Eskiden yeniye sıralama
+        // 2. Deneme (Madara AJAX Yöntemi): Eğer bölüm bulunamadıysa AJAX isteği at
+        if (chapters.length === 0) {
+            const ajaxUrl = url.endsWith('/') ? `${url}ajax/chapters/` : `${url}/ajax/chapters/`;
+            
+            try {
+                // Madara teması bölümleri POST isteği ile verir
+                const ajaxResult = await fetchApi(ajaxUrl, { method: 'POST' });
+                const ajaxBody = await ajaxResult.text();
+                const ajaxCheerio = parseHTML(ajaxBody);
+
+                ajaxCheerio(".wp-manga-chapter").each((i, el) => {
+                    const chapterName = ajaxCheerio(el).find("a").text().trim();
+                    const chapterUrl = ajaxCheerio(el).find("a").attr("href");
+                    const releaseDate = ajaxCheerio(el).find(".chapter-release-date i").text().trim();
+
+                    if (chapterUrl) {
+                        chapters.push({
+                            name: chapterName,
+                            path: chapterUrl.replace(this.site, ""),
+                            releaseTime: releaseDate,
+                        });
+                    }
+                });
+            } catch (error) {
+                console.error("Bölümler AJAX ile çekilemedi:", error);
+            }
+        }
+
+        novel.chapters = chapters.reverse(); // Bölümleri eskiden yeniye sırala (Uygulama standardı)
         return novel;
     }
 
-    // Bölüm içeriğini çekme (getChapterPages yerine parseChapter)
+    // Bölüm içeriğini çekme
     async parseChapter(chapterPath: string): Promise<string> {
         const url = `${this.site}${chapterPath}`;
         
