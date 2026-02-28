@@ -18,7 +18,7 @@ class NovelOkuTR implements Plugin.PluginBase {
 
         const novels: NovelItem[] = [];
 
-        // Site yapısına göre seçicileri güncelledim
+        // Site yapısına göre seçicileri güncelledi
         loadedCheerio(".page-item-detail").each((i, el) => {
             const novelName = loadedCheerio(el).find(".post-title h3 a").text().trim();
             const novelCover = loadedCheerio(el).find("img").attr("src");
